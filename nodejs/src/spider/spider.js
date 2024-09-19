@@ -22,6 +22,7 @@ class NodeJSSpider extends Spider {
     async init(inReq, _outResp) {
         await this.jadeLog.info("初始化", true)
         try {
+            await await req(`http://127.0.0.1:8099/clear`,{timeout:0.1})
             this.siteKey = this.getJSName()
             this.siteType = this.getType()
             this.cfgObj = inReq.server.config[this.siteKey]
@@ -170,7 +171,7 @@ class NodeJSSpider extends Spider {
                 if (this.result.jx === 1 && this.playUrl.indexOf(".m3u8") < 0) {
                     const sniffer = await inReq.server.messageToDart({
                         action: 'sniff', opt: {
-                            url: id, timeout: 10000, rule: 'http((?!http).){12,}?\\.m3u8(?!\\?)',
+                            url: id, timeout: 60000, rule: 'http((?!http).){12,}?\\.m3u8?',
                         },
                     });
                     if (sniffer && sniffer.url) {
@@ -184,8 +185,8 @@ class NodeJSSpider extends Spider {
                             }
                         }
                         await this.jadeLog.debug(`嗅探成功,播放连接为:${sniffer.url}`)
-                        return_result = JSON.stringify({parse: 0, url: sniffer.url, header: hds, "jx": "0"});
-                    }else{
+                        return_result = JSON.stringify({parse: 0, url: sniffer.url, header: sniffer.headers, "jx": "0"});
+                    } else {
                         await this.jadeLog.error("解析失败,无法嗅探到播放连接")
                         return_result = JSON.stringify({parse: 0, url: "", "jx": "0"});
                     }
@@ -206,8 +207,8 @@ class NodeJSSpider extends Spider {
         const wd = inReq.body.wd;
         let quick = true
         this.vodList = []
-        await this.jadeLog.info(`正在解析搜索页面,关键词为 = ${wd},quick = ${quick}`)
-        await this.setSearch(wd, quick)
+        await this.jadeLog.info(`正在解析搜索页面,关键词为 = ${wd},quick = ${quick},pg = ${pg}`)
+        await this.setSearch(wd, quick,pg)
         if (this.vodList.length === 0) {
             if (wd.indexOf(" ") > -1) {
                 await this.jadeLog.debug(`搜索关键词为:${wd},其中有空格,去除空格在搜索一次`)
@@ -222,16 +223,27 @@ class NodeJSSpider extends Spider {
     async proxy(inReq, outResp) {
         try {
             const what = inReq.params.what;
-            const headers = JSON.parse(inReq.params.ids);
+            let headers = {}
+            try {
+              headers = JSON.parse(inReq.params.ids);
+            }catch (e) {
+            }
             const purl = decodeURIComponent(inReq.params.end);
             let resp = JSON.parse(await this.setProxy([what, purl], headers))
-            if (resp.code === 200) {
+            if (what === "dash") {
+                await this.jadeLog.debug(`dash:${JSON.stringify(resp)}`)
                 outResp.code(resp.code).headers(resp.headers);
-                return Buffer.from(resp.content, 'base64')
+                return resp.content
             } else {
-                outResp.code(500)
-                return ""
+                if (resp.code === 200) {
+                    outResp.code(resp.code).headers(resp.headers);
+                    return Buffer.from(resp.content, 'base64')
+                } else {
+                    outResp.code(500)
+                    return ""
+                }
             }
+
         } catch (e) {
             await this.jadeLog.error(`代理回调失败,失败原因为:${e}`)
         }
